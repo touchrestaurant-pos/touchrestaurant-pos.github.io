@@ -12,6 +12,13 @@ double round2(num v) => (v * 100).round() / 100;
 final _fmt = NumberFormat('#,##0.00', 'en_US');
 String money(num v) => 'R${_fmt.format(v)}';
 
+/// How close a payment total has to be to the bill to count as fully paid.
+/// A couple of cents of slack absorbs VAT/rounding noise in the stored total
+/// (the till can show R150.00 while the number underneath is R149.99 or
+/// R150.01 once VAT is applied per line) so a cash+card split that matches
+/// what the till shows is never left with a one- or two-cent phantom balance.
+const tenderSlack = 0.02;
+
 DateTime? parseTime(dynamic v) =>
     v == null ? null : DateTime.tryParse('$v')?.toLocal();
 
@@ -215,9 +222,10 @@ TenderResult splitTender(
   final tipOnCard = card > 0;
   final cashForBill = round2(max(0, cash - (tipOnCard ? 0 : tip)));
   final other = round2(card + eft); // card and EFT never give change
-  if (eft > due + 0.005) return bad('The EFT amount is more than the ${money(due)} owed.');
-  if (card > due + 0.005) return bad('The card amount is more than the ${money(due)} owed.');
-  if (other > due + 0.005 || (other > 0 && cashForBill + other > due + 0.005)) {
+  const slack = tenderSlack;
+  if (eft > due + slack) return bad('The EFT amount is more than the ${money(due)} owed.');
+  if (card > due + slack) return bad('The card amount is more than the ${money(due)} owed.');
+  if (other > due + slack || (other > 0 && cashForBill + other > due + slack)) {
     return bad('Cash, card and EFT together are more than the ${money(due)} owed. '
         'Put ${money(max(0, due - cashForBill - (eft > 0 && card > 0 ? eft : 0)))} on the card or EFT.');
   }
@@ -232,6 +240,11 @@ TenderResult splitTender(
   }
   final cashApplied = round2(min(due, cashForBill));
   final change = other > 0 ? 0.0 : round2(max(0, cashForBill - due));
+  // A cash+card+EFT total that lands within a couple of cents of the bill
+  // (VAT/rounding noise again) counts as fully paid rather than leaving a
+  // one- or two-cent "still owed" balance that never clears.
+  final rawRemaining = due - cashApplied - card - eft;
+  final remaining = rawRemaining <= slack ? 0.0 : round2(rawRemaining);
   return TenderResult(
     payments: [
       if (cashApplied > 0)
@@ -246,7 +259,7 @@ TenderResult splitTender(
       if (eft > 0) {'method': 'eft', 'amount': eft, 'tip': 0.0, 'reference': eftReference.trim()},
     ],
     change: change,
-    remaining: round2(max(0, due - cashApplied - card - eft)),
+    remaining: remaining,
   );
 }
 
@@ -326,7 +339,7 @@ class OrderRepo {
       'discount': round2(min(discount, t.itemsTotal)),
       'discount_reason': discount > 0 ? discountReason : null,
       if (discount > 0 && discountApproval != null) 'discount_approval': discountApproval,
-      'paid': paidSoFar + 0.005 >= t.total,
+      'paid': paidSoFar + tenderSlack >= t.total,
       'created_by': _me,
       'created_at': now,
       'sent_at': now,
@@ -373,13 +386,14 @@ class OrderRepo {
   static double balance(String orderId) {
     final o = LocalStore.row('orders', orderId);
     if (o == null) return 0;
-    return round2(max(0, n(o['total']).toDouble() - paidAmount(orderId)));
+    final raw = n(o['total']).toDouble() - paidAmount(orderId);
+    return raw <= tenderSlack ? 0.0 : round2(raw);
   }
 
   /// Takes (part of) the payment for an order. Marks it paid once fully paid.
   static Future<void> pay(String orderId, Map<String, dynamic> payment) async {
     await _savePayment(orderId, payment);
-    if (balance(orderId) <= 0.005) {
+    if (balance(orderId) <= tenderSlack) {
       await LocalStore.patch('orders', orderId, {'paid': true});
     }
   }

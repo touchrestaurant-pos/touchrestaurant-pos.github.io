@@ -28,7 +28,7 @@ Future<List<Map<String, dynamic>>?> showPaymentDialog(BuildContext context, doub
 Future<List<Map<String, dynamic>>?> collectPayments(BuildContext context, double total) async {
   final taken = <Map<String, dynamic>>[];
   var balance = round2(total);
-  while (balance > 0.005) {
+  while (balance > tenderSlack) {
     final paid = taken.fold<double>(0, (s, p) => s + n(p['amount']).toDouble());
     final got = await showPaymentDialog(context, balance, alreadyPaid: paid);
     if (!context.mounted) return taken.isEmpty ? null : taken;
