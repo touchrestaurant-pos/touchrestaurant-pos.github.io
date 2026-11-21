@@ -14,7 +14,6 @@ import '../theme.dart';
 import 'stock_screen.dart';
 import '../data/app_db.dart';
 
-SupabaseClient get _db => Supabase.instance.client;
 
 String _q(dynamic v) {
   final x = n(v);
@@ -33,8 +32,7 @@ Future<int> createPurchaseOrdersFromReorder(List<Map<String, dynamic>> reorder) 
   }
   var made = 0;
   for (final e in bySupplier.entries) {
-    final po = await _db
-        .from('purchase_orders')
+    final po = await AppDb.from('purchase_orders')
         .insert({'supplier_id': e.key, 'notes': 'From the buying list'})
         .select('id')
         .single();
@@ -81,16 +79,21 @@ class _PurchaseOrdersTabState extends State<PurchaseOrdersTab> {
       _error = null;
     });
     try {
-      final rows = await _db
-          .from('purchase_orders')
-          .select('*, purchase_order_lines(*)')
-          .order('created_at', ascending: false)
-          .limit(100);
-      _list = rows.map((e) => Map<String, dynamic>.from(e)).toList();
+      final rows = await AppDb.from('purchase_orders').select().order('created_at', ascending: false).limit(100);
+      final heads = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      final ids = [for (final h in heads) h['id']];
+      final lineRows = ids.isEmpty ? [] : await AppDb.from('purchase_order_lines').select().inFilter('po_id', ids);
+      for (final h in heads) {
+        h['purchase_order_lines'] = [
+          for (final l in (lineRows as List))
+            if ('${(l as Map)['po_id']}' == '${h['id']}') Map<String, dynamic>.from(l)
+        ];
+      }
+      _list = heads;
     } on PostgrestException catch (e) {
       _error = e.message;
     } catch (_) {
-      _error = 'Purchase orders need an internet connection.';
+      _error = 'Could not load purchase orders. Check the database connection.';
     }
     if (mounted) setState(() => _loading = false);
   }

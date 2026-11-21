@@ -251,7 +251,7 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               if (_eftOffline)
                 const Padding(
                   padding: EdgeInsets.only(top: 10),
-                  child: Text('EFT needs the internet. Take cash or card, or wait until the till is back online.',
+                  child: Text('EFT needs a connection to the database. Take cash or card, or wait until the till is back online.',
                       style: TextStyle(color: Brand.muted, fontSize: 12)),
                 ),
               if (_eftOk) ...[

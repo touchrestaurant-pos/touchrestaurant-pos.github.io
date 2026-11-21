@@ -7,7 +7,6 @@ import '../data/sync_service.dart';
 import '../theme.dart';
 import '../data/app_db.dart';
 
-SupabaseClient get _db => Supabase.instance.client;
 
 String _q(dynamic v) {
   final x = n(v);
@@ -39,7 +38,7 @@ class _StocktakeTabState extends State<StocktakeTab> {
     setState(() => _loading = true);
     try {
       final rows = await AppDb.from('stocktakes').select().order('created_at', ascending: false).limit(30);
-      _list = rows.map((e) => Map<String, dynamic>.from(e)).toList();
+      _list = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (_) {
       if (mounted) _say('Stock-takes need an internet connection.');
     }
@@ -135,7 +134,7 @@ class _StocktakeEditorState extends State<_StocktakeEditor> {
   Future<void> _load() async {
     try {
       final rows = await AppDb.from('stocktake_lines').select().eq('stocktake_id', widget.take['id']);
-      _lines = rows.map((e) => Map<String, dynamic>.from(e)).toList()
+      _lines = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList()
         ..sort((a, b) {
           final ia = _item(a['stock_item_id']), ib = _item(b['stock_item_id']);
           final c = '${ia?['category']}'.compareTo('${ib?['category']}');
@@ -162,13 +161,12 @@ class _StocktakeEditorState extends State<_StocktakeEditor> {
 
   Future<void> _saveLine(Map<String, dynamic> l) async {
     try {
-      await _db
-          .from('stocktake_lines')
+      await AppDb.from('stocktake_lines')
           .update({'counted_qty': _counted(l)})
           .eq('stocktake_id', widget.take['id'])
           .eq('stock_item_id', l['stock_item_id']);
     } catch (_) {
-      if (mounted) _say('Could not save that count. Check the connection.');
+      if (mounted) _say('Could not save that count. Check the database connection.');
     }
   }
 

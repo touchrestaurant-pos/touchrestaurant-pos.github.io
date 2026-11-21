@@ -126,6 +126,12 @@ class SyncService extends ChangeNotifier {
     LocalStore.resetAttempts();
     _connSub ??= Connectivity().onConnectivityChanged.listen((results) {
       final nowOnline = !results.contains(ConnectivityResult.none);
+      // A local Postgres store works with no internet at all: whether it is
+      // reachable is decided by the sync itself, not by the network adapter.
+      if (DbProfiles.isPostgres) {
+        syncNow();
+        return;
+      }
       if (nowOnline != online) {
         online = nowOnline;
         notifyListeners();

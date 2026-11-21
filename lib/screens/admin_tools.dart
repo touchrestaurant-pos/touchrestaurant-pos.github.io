@@ -14,7 +14,6 @@ import '../receipt/receipt_service.dart';
 import '../theme.dart';
 import '../data/app_db.dart';
 
-SupabaseClient get _db => Supabase.instance.client;
 
 const _backupTables = [
   'company_settings',
@@ -84,7 +83,7 @@ class _AdminToolsState extends State<AdminTools> {
     } on PostgrestException catch (e) {
       _status = 'Backup failed: ${e.message}';
     } catch (_) {
-      _status = 'Backup needs an internet connection.';
+      _status = 'Backup failed. Check the database connection.';
     }
     if (mounted) setState(() => _busy = false);
   }
@@ -115,7 +114,7 @@ class _AdminToolsState extends State<AdminTools> {
     } on PostgrestException catch (e) {
       _say(e.message);
     } catch (_) {
-      _say('This needs an internet connection.');
+      _say('That did not work. Check the database connection.');
     }
     if (mounted) setState(() => _busy = false);
   }
@@ -201,9 +200,9 @@ class _AdminToolsState extends State<AdminTools> {
       var q = AppDb.from('audit_log').select();
       if (_auditFilter != 'all') q = q.eq('table_name', _auditFilter);
       final rows = await q.order('at', ascending: false).limit(300);
-      _audit = rows.map((e) => Map<String, dynamic>.from(e)).toList();
+      _audit = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (_) {
-      _say('The change history needs an internet connection.');
+      _say('Could not load the change history. Check the database connection.');
     }
     if (mounted) setState(() => _auditLoaded = true);
   }
@@ -225,12 +224,11 @@ class _AdminToolsState extends State<AdminTools> {
 
   Future<void> _loadErrors() async {
     try {
-      final rows = await _db
-          .from('app_errors')
+      final rows = await AppDb.from('app_errors')
           .select('created_at, message, platform, app_version, user_id')
           .order('created_at', ascending: false)
           .limit(30);
-      _errors = rows.map((e) => Map<String, dynamic>.from(e)).toList();
+      _errors = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     } catch (_) {
       final local = ((LocalStore.getMeta('errors') as List?) ?? const []).reversed;
       _errors = [for (final e in local) Map<String, dynamic>.from(e as Map)..['created_at'] = (e)['at']];
@@ -322,7 +320,7 @@ class _AdminToolsState extends State<AdminTools> {
       ]),
       card('Backups and test data', [
         const Text(
-            'The free database plan keeps no backups. Download one every week and before big changes.',
+            'This saves a copy of your data to a file. Do it every week and before big changes, and keep the file on a USB stick or cloud drive. The server PC also has a full Backup-Database tool.',
             style: TextStyle(color: Brand.muted)),
         const SizedBox(height: 8),
         Wrap(spacing: 10, runSpacing: 10, children: [

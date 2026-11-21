@@ -7,7 +7,6 @@ import '../data/repo.dart';
 import '../data/sync_service.dart';
 import '../theme.dart';
 
-SupabaseClient get _db => Supabase.instance.client;
 
 Future<bool> _online(BuildContext context, Future<void> Function() action) async {
   try {

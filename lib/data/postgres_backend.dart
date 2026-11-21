@@ -50,13 +50,40 @@ class PostgresBackend implements SyncBackend {
 
   /// Pull all rows from a table (used by the sync service).
   Future<List<Map<String, dynamic>>> selectAll(String table) async {
-    return _pg.query('SELECT * FROM public."$table"');
+    return _trimDates(table, await _pg.query('SELECT * FROM public."$table"'));
+  }
+
+  final Map<String, List<String>> _dateCols = {};
+
+  /// `date` columns arrive as timestamps; give them back as plain yyyy-mm-dd like the cloud does.
+  Future<List<Map<String, dynamic>>> _trimDates(String table, List<Map<String, dynamic>> rows) async {
+    if (rows.isEmpty) return rows;
+    var cols = _dateCols[table];
+    if (cols == null) {
+      final info = await _pg.query(
+        'SELECT column_name FROM information_schema.columns '
+        "WHERE table_schema = 'public' AND table_name = @t AND data_type = 'date'",
+        {'t': table},
+      );
+      cols = [for (final r in info) '${r['column_name']}'];
+      _dateCols[table] = cols;
+    }
+    for (final r in rows) {
+      for (final c in cols) {
+        final v = r[c];
+        if (v is String && v.length >= 10) r[c] = v.substring(0, 10);
+      }
+    }
+    return rows;
   }
 
   /// Pull orders from the last N days.
   Future<List<Map<String, dynamic>>> selectOrders(int days) async {
-    return _pg.query(
-      "SELECT * FROM public.orders WHERE created_at >= now() - interval '${days} days' ORDER BY created_at",
+    return _trimDates(
+      'orders',
+      await _pg.query(
+        "SELECT * FROM public.orders WHERE created_at >= now() - interval '${days} days' ORDER BY created_at",
+      ),
     );
   }
 
@@ -78,7 +105,7 @@ class PostgresBackend implements SyncBackend {
       );
       result.addAll(rows);
     }
-    return result;
+    return _trimDates(table, result);
   }
 
   /// Sanitize values for SQL parameters — convert lists to Postgres array syntax, etc.

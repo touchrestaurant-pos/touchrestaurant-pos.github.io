@@ -71,7 +71,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
         final params = <String, dynamic>{'from': fromIso, 'to': toIso};
         var where = 'o.created_at >= @from AND o.created_at < @to';
         if (search.isNotEmpty) {
-          where += ' AND o.order_ref ILIKE @search';
+          where += " AND (o.order_ref ILIKE @search OR COALESCE(o.invoice_no::text,'') ILIKE @search OR COALESCE(o.customer_name,'') ILIKE @search)";
           params['search'] = '%$search%';
         }
         final rows = await pg.query(
@@ -88,14 +88,16 @@ class _OrdersScreenState extends State<OrdersScreen> {
             .select('*, order_items(*), payments(*)')
             .gte('created_at', fromIso)
             .lt('created_at', toIso);
-        if (search.isNotEmpty) q = q.ilike('order_ref', '%$search%');
+        if (search.isNotEmpty) {
+          q = q.or('order_ref.ilike.%$search%,customer_name.ilike.%$search%');
+        }
         final rows = await q.order('created_at', ascending: false).limit(500);
         _server = rows.map((e) => Map<String, dynamic>.from(e)).toList();
       }
     } on PostgrestException catch (e) {
       _error = e.message;
     } catch (_) {
-      _error = 'Looking up older orders needs an internet connection.';
+      _error = 'Could not look up those orders. Check the database connection.';
     }
     if (mounted) setState(() => _loading = false);
   }

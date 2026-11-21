@@ -33,7 +33,7 @@ Future<String?> _callStaffFunction(Map<String, dynamic> body) async {
         ? '${d['error']}'
         : 'Could not complete this (${e.status}).';
   } catch (_) {
-    return 'Cannot reach the server. This needs internet.';
+    return 'Could not reach the database. Check the connection and try again.';
   }
 }
 
@@ -98,6 +98,7 @@ class StaffScreen extends StatelessWidget {
     final created = await showDialog<bool>(
         context: context, builder: (_) => const _AddStaffDialog());
     if (created == true) {
+      SyncService.instance.refreshAll(); // staff are normally re-read every 5 minutes; show the new person now
       await SyncService.instance.syncNow();
       if (context.mounted) {
         ScaffoldMessenger.of(context)
@@ -128,6 +129,7 @@ class StaffScreen extends StatelessWidget {
 
   Future<void> _save(Map<String, dynamic> row) async {
     await LocalStore.upsert('staff_profiles', row);
+    SyncService.instance.refreshAll();
     SyncService.instance.syncNow();
   }
 
@@ -163,7 +165,7 @@ class StaffScreen extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               const Text(
-                  'Staff sign in with a username and password. If someone forgets their password, set a new one here. Adding staff and resetting passwords need internet.',
+                  'Staff sign in with a username and password. If someone forgets their password, set a new one here. Changes here are saved straight to the store database.',
                   style: TextStyle(color: Brand.muted)),
               const SizedBox(height: 16),
               Expanded(

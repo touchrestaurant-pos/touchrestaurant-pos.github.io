@@ -9,7 +9,6 @@ import '../receipt/ledger.dart';
 import '../theme.dart';
 import '../data/app_db.dart';
 
-SupabaseClient get _db => Supabase.instance.client;
 
 String _d(DateTime d) =>
     '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
@@ -264,13 +263,12 @@ class _ExpensesTabState extends State<_ExpensesTab> {
   Future<void> _load() async {
     setState(() => _loading = true);
     await _guard(context, () async {
-      final rows = await _db
-          .from('expenses')
+      final rows = await AppDb.from('expenses')
           .select()
           .gte('spent_on', _d(_from))
           .lte('spent_on', _d(_to))
           .order('spent_on', ascending: false);
-      _rows = rows.map((e) => Map<String, dynamic>.from(e)).toList();
+      _rows = (rows as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
     });
     if (mounted) setState(() => _loading = false);
   }

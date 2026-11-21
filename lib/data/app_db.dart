@@ -67,6 +67,7 @@ class PgQuery implements Future<dynamic> {
   final String _table;
   String _select = '*';
   final List<_Cond> _conds = [];
+  bool _maybe = false;
   String? _orderCol;
   bool _orderAsc = true;
   int? _limit;
@@ -112,6 +113,28 @@ class PgQuery implements Future<dynamic> {
     return this;
   }
 
+  PgQuery lte(String col, dynamic val) {
+    _conds.add(_Cond(col, '<=', val));
+    return this;
+  }
+
+  PgQuery neq(String col, dynamic val) {
+    _conds.add(_Cond(col, '<>', val));
+    return this;
+  }
+
+  PgQuery gt(String col, dynamic val) {
+    _conds.add(_Cond(col, '>', val));
+    return this;
+  }
+
+  /// Like [single] but returns null instead of failing when nothing matches.
+  PgQuery maybeSingle() {
+    _single = true;
+    _maybe = true;
+    return this;
+  }
+
   PgQuery lt(String col, dynamic val) {
     _conds.add(_Cond(col, '<', val));
     return this;
@@ -149,7 +172,50 @@ class PgQuery implements Future<dynamic> {
     return this;
   }
 
-  (String, Map<String, dynamic>) _whereClause() {
+  // Column types per table, so date strings can be sent as real dates.
+  static final Map<String, Map<String, String>> _typeCache = {};
+
+  Future<Map<String, String>> _colTypes() async {
+    final hit = _typeCache[_table];
+    if (hit != null) return hit;
+    final rows = await _pg.query(
+      'SELECT column_name, data_type FROM information_schema.columns '
+      "WHERE table_schema = 'public' AND table_name = @t",
+      {'t': _table},
+    );
+    final m = {for (final r in rows) '${r['column_name']}': '${r['data_type']}'};
+    if (m.isNotEmpty) _typeCache[_table] = m;
+    return m;
+  }
+
+  /// Date columns come back from the driver as timestamps; give them back as plain yyyy-mm-dd like Supabase does.
+  static List<Map<String, dynamic>> _fixDates(Map<String, String> types, List<Map<String, dynamic>> rows) {
+    final dateCols = [for (final e in types.entries) if (e.value == 'date') e.key];
+    if (dateCols.isEmpty) return rows;
+    for (final r in rows) {
+      for (final c in dateCols) {
+        final v = r[c];
+        if (v is String && v.length >= 10) r[c] = v.substring(0, 10);
+      }
+    }
+    return rows;
+  }
+
+  static dynamic _coerce(Map<String, String> types, String col, dynamic v) {
+    if (v is! String) return v;
+    final t = types[col];
+    if (t == null) return v;
+    if (t == 'date') {
+      final d = DateTime.tryParse(v.length >= 10 ? v.substring(0, 10) : v);
+      return d == null ? v : DateTime.utc(d.year, d.month, d.day);
+    }
+    if (t.startsWith('timestamp')) {
+      return DateTime.tryParse(v) ?? v;
+    }
+    return v;
+  }
+
+  (String, Map<String, dynamic>) _whereClause([Map<String, String> types = const {}]) {
     final parts = <String>[];
     final params = <String, dynamic>{};
     for (var i = 0; i < _conds.length; i++) {
@@ -161,7 +227,7 @@ class PgQuery implements Future<dynamic> {
         params[key] = (c.val as List).map((v) => '$v').toList();
       } else {
         parts.add('${c.col} ${c.op} @$key');
-        params[key] = c.val;
+        params[key] = c.op == 'ILIKE' ? c.val : _coerce(types, c.col, c.val);
       }
     }
     return (parts.isEmpty ? '' : ' WHERE ${parts.join(' AND ')}', params);
@@ -178,18 +244,19 @@ class PgQuery implements Future<dynamic> {
     final rows = _insertRows is List ? (_insertRows as List) : [_insertRows];
     if (rows.isEmpty) return _single ? null : <Map<String, dynamic>>[];
     final results = <Map<String, dynamic>>[];
+    final types = await _colTypes();
     for (final r in rows) {
       final m = Map<String, dynamic>.from(r as Map);
       final cols = m.keys.toList();
       final params = <String, dynamic>{};
       final placeholders = <String>[];
       for (final c in cols) {
-        params['v_$c'] = m[c];
+        params['v_$c'] = _coerce(types, c, m[c]);
         placeholders.add('@v_$c');
       }
       final sql = 'INSERT INTO public.$_table (${cols.join(', ')}) VALUES (${placeholders.join(', ')}) '
           'RETURNING $_select';
-      final res = await _pg.query(sql, params);
+      final res = _fixDates(types, await _pg.query(sql, params));
       results.addAll(res);
     }
     if (_single) return results.isEmpty ? null : results.first;
@@ -197,27 +264,30 @@ class PgQuery implements Future<dynamic> {
   }
 
   Future<dynamic> _runUpdate() async {
-    final (whereSql, whereParams) = _whereClause();
+    final types = await _colTypes();
+    final (whereSql, whereParams) = _whereClause(types);
     final sets = <String>[];
     final params = Map<String, dynamic>.from(whereParams);
     _updateRow!.forEach((k, v) {
       sets.add('$k = @u_$k');
-      params['u_$k'] = v;
+      params['u_$k'] = _coerce(types, k, v);
     });
     final sql = 'UPDATE public.$_table SET ${sets.join(', ')}$whereSql RETURNING $_select';
-    final res = await _pg.query(sql, params);
+    final res = _fixDates(types, await _pg.query(sql, params));
     if (_single) return res.isEmpty ? null : res.first;
     return res;
   }
 
   Future<dynamic> _runDelete() async {
-    final (whereSql, whereParams) = _whereClause();
+    final types = await _colTypes();
+    final (whereSql, whereParams) = _whereClause(types);
     await _pg.execute('DELETE FROM public.$_table$whereSql', whereParams);
     return null;
   }
 
   Future<dynamic> _runSelect() async {
-    final (whereSql, whereParams) = _whereClause();
+    final types = await _colTypes();
+    final (whereSql, whereParams) = _whereClause(types);
     var sql = 'SELECT $_select FROM public.$_table$whereSql';
     if (_orderCol != null) sql += ' ORDER BY $_orderCol ${_orderAsc ? 'ASC' : 'DESC'}';
     if (_rangeFrom != null) {
@@ -226,9 +296,12 @@ class PgQuery implements Future<dynamic> {
     } else if (_limit != null) {
       sql += ' LIMIT $_limit';
     }
-    final res = await _pg.query(sql, whereParams);
+    final res = _fixDates(types, await _pg.query(sql, whereParams));
     if (_single) {
-      if (res.isEmpty) throw Exception('No rows found in $_table for this query.');
+      if (res.isEmpty) {
+        if (_maybe) return null;
+        throw Exception('No rows found in $_table for this query.');
+      }
       return res.first;
     }
     return res;

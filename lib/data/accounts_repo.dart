@@ -8,7 +8,6 @@ import 'app_db.dart';
 /// server; this only calls it. An account sale needs the internet, because the
 /// credit limit has to be checked against the real balance.
 class AccountsRepo {
-  static SupabaseClient get _db => Supabase.instance.client;
 
   /// Accounts switched on in Settings.
   static bool get enabled => companyRow()?['accounts_enabled'] == true;

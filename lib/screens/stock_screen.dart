@@ -14,7 +14,6 @@ import 'stock_item_view.dart';
 import 'stocktake_tab.dart';
 import '../data/app_db.dart';
 
-SupabaseClient get _db => Supabase.instance.client;
 
 /// Stock changes are written straight to the server (they must be exact and
 /// cannot be queued), then the device refreshes.

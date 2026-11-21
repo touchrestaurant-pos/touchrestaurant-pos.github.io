@@ -14,7 +14,6 @@ import 'till_screen.dart' show tillCategories;
 import '../theme.dart';
 import '../data/app_db.dart';
 
-SupabaseClient get _db => Supabase.instance.client;
 
 /// Supervisor end-of-day cash-up. Expected cash is worked out on the server from
 /// the day's payments and refunds, so the count can be checked against it.
@@ -64,16 +63,16 @@ class _CashUpScreenState extends State<CashUpScreen> {
     try {
       final res = await AppDb.rpc('cash_up_summary', params: {'p_date': _d(_day), 'p_staff': _staff});
       _sum = Map<String, dynamic>.from(res as Map);
-      final hist = await _db
-          .from('cash_ups')
-          .select()
-          .order('created_at', ascending: false)
-          .limit(14);
-      _history = hist.map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      try {
+        final hist = await AppDb.from('cash_ups').select().order('created_at', ascending: false).limit(14);
+        _history = (hist as List).map((e) => Map<String, dynamic>.from(e as Map)).toList();
+      } catch (_) {
+        // History is optional: keep the summary on screen.
+      }
     } on PostgrestException catch (e) {
       _error = e.message;
     } catch (_) {
-      _error = 'Cash-up needs an internet connection. Connect and press Refresh.';
+      _error = 'Could not load the cash-up. Check the database connection and press Refresh.';
     }
     if (mounted) setState(() => _loading = false);
   }
